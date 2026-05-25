@@ -84,8 +84,6 @@ Message → 모든 Queue
 * 공지 시스템
 * Pub/Sub 모델
 
-PDF에서도 다음 흐름으로 설명한다:
-
 ```text id="q2nd0s"
 Publisher → Fanout Exchange → 모든 연결된 Queue
 ```
