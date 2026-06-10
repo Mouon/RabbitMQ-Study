@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RabbitMQ Visual Study</title>
+    <meta
+      name="description"
+      content="RabbitMQ Chapter 1, 2, 3 concepts as clean interactive message-flow labs."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#chapter-1" aria-label="RabbitMQ Visual Study">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>RabbitMQ Visual Study</span>
+      </a>
+
+      <nav class="chapter-nav" aria-label="챕터 이동">
+        <label for="chapterSelect">Chapter</label>
+        <select id="chapterSelect">
+          <option value="chapter-1">Chapter 1. RabbitMQ와 AMQP</option>
+          <option value="chapter-2">Chapter 2. Work Queue와 ACK</option>
+          <option value="chapter-3">Chapter 3. Exchange, Routing, DLQ</option>
+        </select>
+      </nav>
+    </header>
+
+    <main>
+      <section class="chapter-section is-active" id="chapter-1" data-chapter="chapter-1">
+        <div class="chapter-heading">
+          <p class="chapter-kicker">Chapter 1</p>
+          <h1>메시지는 큐로 바로 가지 않는다</h1>
+          <p class="lead">
+            RabbitMQ는 서비스 사이에 메시지를 맡아두는 브로커다. Producer는 메시지를 발행하고,
+            Exchange는 규칙에 맞는 Queue를 고르며, Consumer는 Queue에서 메시지를 가져가 처리한다.
+          </p>
+        </div>
+
+        <div class="content-grid">
+          <article class="study-note" aria-labelledby="chapter1-note-title">
+            <h2 id="chapter1-note-title">핵심 메모</h2>
+            <p>
+              주문 시스템에서 사용자는 주문 접수만 빠르게 확인하면 된다. 오래 걸리는 결제, 재고,
+              알림 처리는 뒤에서 비동기로 처리하면 사용자 경험과 시스템 안정성이 같이 좋아진다.
+            </p>
+            <ul class="plain-list">
+              <li><strong>AMQP</strong>는 서로 다른 언어와 플랫폼이 같은 방식으로 메시지를 교환하게 해주는 표준 프로토콜이다.</li>
+              <li><strong>Exchange</strong>는 메시지를 어느 Queue로 보낼지 결정하는 라우터다.</li>
+              <li><strong>Queue</strong>는 Consumer가 가져가기 전까지 메시지를 저장한다.</li>
+              <li><strong>Binding</strong>은 Exchange와 Queue 사이의 라우팅 규칙이다.</li>
+            </ul>
+          </article>
+
+          <section class="lab" aria-labelledby="chapter1-lab-title">
+            <div class="lab-header">
+              <div>
+                <p class="lab-kicker">Flow Lab</p>
+                <h2 id="chapter1-lab-title">Producer에서 Consumer까지</h2>
+              </div>
+              <button class="ghost-button" type="button" data-action="reset-ch1">
+                <span class="button-icon" aria-hidden="true">R</span>
+                <span>초기화</span>
+              </button>
+            </div>
+
+            <div class="toolbar" aria-label="Chapter 1 controls">
+              <button class="action-button primary" type="button" data-action="ch1-publish">
+                <span class="button-icon" aria-hidden="true">+</span>
+                <span>메시지 발행</span>
+              </button>
+              <button class="action-button" type="button" data-action="ch1-consume">
+                <span class="button-icon" aria-hidden="true">&gt;</span>
+                <span>Consumer가 가져가기</span>
+              </button>
+            </div>
+
+            <div class="flow-board chapter1-board" data-board="chapter1" aria-label="RabbitMQ 기본 흐름">
+              <div class="flow-node producer" data-node="ch1-producer">
+                <span class="node-label">Producer</span>
+                <strong>Order API</strong>
+                <small>주문 접수 메시지 발행</small>
+              </div>
+              <div class="flow-node exchange" data-node="ch1-exchange">
+                <span class="node-label">Exchange</span>
+                <strong>AMQP Router</strong>
+                <small>Binding 규칙 확인</small>
+              </div>
+              <div class="flow-node queue" data-node="ch1-queue">
+                <span class="node-label">Queue</span>
+                <strong>order.queue</strong>
+                <small>Consumer 전까지 저장</small>
+                <div class="queue-stack" data-stack="ch1-queue"></div>
+              </div>
+              <div class="flow-node consumer" data-node="ch1-consumer">
+                <span class="node-label">Consumer</span>
+                <strong>Worker</strong>
+                <small>재고, 알림, 결제 후처리</small>
+              </div>
+            </div>
+
+            <div class="state-strip">
+              <div>
+                <span>ready</span>
+                <strong data-count="ch1-ready">0</strong>
+              </div>
+              <div>
+                <span>consumed</span>
+                <strong data-count="ch1-consumed">0</strong>
+              </div>
+              <div>
+                <span>AMQP</span>
+                <strong>Producer - Exchange - Queue</strong>
+              </div>
+            </div>
+
+            <ol class="event-log" data-log="chapter1" aria-label="Chapter 1 event log"></ol>
+          </section>
+        </div>
+      </section>
+
+      <section class="chapter-section" id="chapter-2" data-chapter="chapter-2">
+        <div class="chapter-heading">
+          <p class="chapter-kicker">Chapter 2</p>
+          <h1>Work Queue는 일을 나눠서 처리한다</h1>
+          <p class="lead">
+            여러 Consumer가 같은 Queue를 바라보면 메시지는 한 Consumer에게만 전달된다.
+            ready는 아직 안 간 메시지, unacked는 전달됐지만 ACK가 돌아오지 않은 메시지다.
+          </p>
+        </div>
+
+        <div class="content-grid">
+          <article class="study-note" aria-labelledby="chapter2-note-title">
+            <h2 id="chapter2-note-title">핵심 메모</h2>
+            <p>
+              기본 분배는 Round-Robin이다. 작업 시간이 비슷하면 단순하고 좋지만, 긴 작업과 짧은 작업이
+              섞이면 한 Consumer에게 일이 몰린 것처럼 보일 수 있다.
+            </p>
+            <ul class="plain-list">
+              <li><strong>AUTO ACK</strong>는 리스너가 정상 종료되면 자동으로 ACK를 보낸다.</li>
+              <li><strong>MANUAL ACK</strong>는 처리 완료 시점에 직접 ACK를 보낸다.</li>
+              <li><strong>prefetchCount</strong>를 제한하면 먼저 끝난 Consumer가 다음 작업을 받기 쉬워진다.</li>
+              <li><strong>purge</strong>는 보통 ready 메시지를 비우며, unacked는 연결 상태에 따라 다르게 보인다.</li>
+            </ul>
+          </article>
+
+          <section class="lab" aria-labelledby="chapter2-lab-title">
+            <div class="lab-header">
+              <div>
+                <p class="lab-kicker">Work Queue Lab</p>
+                <h2 id="chapter2-lab-title">ready와 unacked 관찰</h2>
+              </div>
+              <button class="ghost-button" type="button" data-action="reset-ch2">
+                <span class="button-icon" aria-hidden="true">R</span>
+                <span>초기화</span>
+              </button>
+            </div>
+
+            <div class="segmented-control" role="group" aria-label="분배 방식">
+              <button class="is-selected" type="button" data-mode="round">Round-Robin</button>
+              <button type="button" data-mode="fair">Fair Dispatch</button>
+            </div>
+
+            <div class="toolbar" aria-label="Chapter 2 controls">
+              <button class="action-button primary" type="button" data-action="ch2-short">
+                <span class="button-icon" aria-hidden="true">+</span>
+                <span>짧은 작업 4개</span>
+              </button>
+              <button class="action-button" type="button" data-action="ch2-mixed">
+                <span class="button-icon" aria-hidden="true">+</span>
+                <span>긴 작업 섞기</span>
+              </button>
+              <button class="action-button danger" type="button" data-action="ch2-error">
+                <span class="button-icon" aria-hidden="true">!</span>
+                <span>파싱 에러 보내기</span>
+              </button>
+            </div>
+
+            <div class="flow-board chapter2-board" data-board="chapter2" aria-label="Work Queue 흐름">
+              <div class="flow-node producer" data-node="ch2-producer">
+                <span class="node-label">Producer</span>
+                <strong>Task API</strong>
+                <small>message | duration</small>
+              </div>
+              <div class="flow-node queue wide-node" data-node="ch2-queue">
+                <span class="node-label">Queue</span>
+                <strong>WorkQueue</strong>
+                <small>durable=true</small>
+                <div class="queue-stack" data-stack="ch2-queue"></div>
+              </div>
+              <div class="flow-node consumer" data-node="ch2-consumer-a">
+                <span class="node-label">Consumer A</span>
+                <strong data-consumer="A-status">idle</strong>
+                <small>processed <span data-consumer="A-count">0</span></small>
+              </div>
+              <div class="flow-node consumer" data-node="ch2-consumer-b">
+                <span class="node-label">Consumer B</span>
+                <strong data-consumer="B-status">idle</strong>
+                <small>processed <span data-consumer="B-count">0</span></small>
+              </div>
+              <div class="flow-node ack-node" data-node="ch2-ack">
+                <span class="node-label">ACK</span>
+                <strong>AUTO ACK</strong>
+                <small>정상 종료 후 ACK</small>
+              </div>
+            </div>
+
+            <div class="state-strip">
+              <div>
+                <span>ready</span>
+                <strong data-count="ch2-ready">0</strong>
+              </div>
+              <div>
+                <span>unacked</span>
+                <strong data-count="ch2-unacked">0</strong>
+              </div>
+              <div>
+                <span>failed</span>
+                <strong data-count="ch2-failed">0</strong>
+              </div>
+            </div>
+
+            <ol class="event-log" data-log="chapter2" aria-label="Chapter 2 event log"></ol>
+          </section>
+        </div>
+      </section>
+
+      <section class="chapter-section" id="chapter-3" data-chapter="chapter-3">
+        <div class="chapter-heading">
+          <p class="chapter-kicker">Chapter 3</p>
+          <h1>Exchange가 Queue를 고르고, 실패는 DLQ로 흐른다</h1>
+          <p class="lead">
+            Producer는 Queue 이름을 몰라도 된다. Exchange 이름과 Routing Key로 발행하면
+            Exchange와 Binding이 실제 Queue를 결정한다. 처리 실패 시 requeue=false이면 DLX를 통해 DLQ로 이동한다.
+          </p>
+        </div>
+
+        <div class="content-grid">
+          <article class="study-note" aria-labelledby="chapter3-note-title">
+            <h2 id="chapter3-note-title">핵심 메모</h2>
+            <p>
+              Direct는 정확히 일치하는 키, Topic은 패턴, Fanout은 전체 브로드캐스트다.
+              RabbitMQ의 DLQ 이동은 consumer의 nack/reject와 requeue=false 결정에 직접 영향을 받는다.
+            </p>
+            <ul class="plain-list">
+              <li><strong>Direct</strong>는 routing key와 binding key가 정확히 같을 때 전달한다.</li>
+              <li><strong>Topic</strong>은 <code>*</code> 한 단어, <code>#</code> 여러 단어 패턴으로 전달한다.</li>
+              <li><strong>Fanout</strong>은 routing key를 보지 않고 연결된 모든 Queue로 전달한다.</li>
+              <li><strong>DLX</strong>는 실패 메시지를 DLQ로 보내는 Exchange다.</li>
+            </ul>
+          </article>
+
+          <section class="lab" aria-labelledby="chapter3-lab-title">
+            <div class="lab-header">
+              <div>
+                <p class="lab-kicker">Exchange Lab</p>
+                <h2 id="chapter3-lab-title">Routing과 DLQ</h2>
+              </div>
+              <button class="ghost-button" type="button" data-action="reset-ch3">
+                <span class="button-icon" aria-hidden="true">R</span>
+                <span>초기화</span>
+              </button>
+            </div>
+
+            <div class="segmented-control" role="group" aria-label="Exchange 종류">
+              <button class="is-selected" type="button" data-exchange="direct">Direct</button>
+              <button type="button" data-exchange="topic">Topic</button>
+              <button type="button" data-exchange="fanout">Fanout</button>
+            </div>
+
+            <div class="routing-form">
+              <label for="routingKey">Routing Key</label>
+              <select id="routingKey">
+                <option value="log.error">log.error</option>
+                <option value="log.warn">log.warn</option>
+                <option value="log.info">log.info</option>
+                <option value="user.error">user.error</option>
+                <option value="order.completed.email">order.completed.email</option>
+              </select>
+            </div>
+
+            <div class="toolbar" aria-label="Chapter 3 controls">
+              <button class="action-button primary" type="button" data-action="ch3-publish">
+                <span class="button-icon" aria-hidden="true">+</span>
+                <span>Exchange로 발행</span>
+              </button>
+              <button class="action-button" type="button" data-action="ch3-dlq">
+                <span class="button-icon" aria-hidden="true">&gt;</span>
+                <span>실패 처리 후 DLQ</span>
+              </button>
+              <button class="action-button danger" type="button" data-action="ch3-ttl">
+                <span class="button-icon" aria-hidden="true">!</span>
+                <span>TTL 만료</span>
+              </button>
+            </div>
+
+            <div class="flow-board chapter3-board" data-board="chapter3" aria-label="Exchange와 DLQ 흐름">
+              <div class="flow-node producer" data-node="ch3-producer">
+                <span class="node-label">Producer</span>
+                <strong>LogPublisher</strong>
+                <small>Exchange + Routing Key</small>
+              </div>
+              <div class="flow-node exchange" data-node="ch3-exchange">
+                <span class="node-label">Exchange</span>
+                <strong data-exchange-label>direct.exchange</strong>
+                <small data-binding-label>binding key exact match</small>
+              </div>
+              <div class="flow-node queue" data-node="ch3-error">
+                <span class="node-label">Queue</span>
+                <strong>error.queue</strong>
+                <small data-binding="error">log.error</small>
+                <div class="queue-stack" data-stack="ch3-error"></div>
+              </div>
+              <div class="flow-node queue" data-node="ch3-warn">
+                <span class="node-label">Queue</span>
+                <strong>warn.queue</strong>
+                <small data-binding="warn">log.warn</small>
+                <div class="queue-stack" data-stack="ch3-warn"></div>
+              </div>
+              <div class="flow-node queue" data-node="ch3-info">
+                <span class="node-label">Queue</span>
+                <strong>info.queue</strong>
+                <small data-binding="info">log.info</small>
+                <div class="queue-stack" data-stack="ch3-info"></div>
+              </div>
+              <div class="flow-node queue" data-node="ch3-all">
+                <span class="node-label">Queue</span>
+                <strong>topic.queue</strong>
+                <small data-binding="all">not bound in direct</small>
+                <div class="queue-stack" data-stack="ch3-all"></div>
+              </div>
+              <div class="flow-node muted-node" data-node="ch3-drop">
+                <span class="node-label">Unrouted</span>
+                <strong>drop</strong>
+                <small>매칭된 Binding 없음</small>
+              </div>
+              <div class="flow-node queue source-queue" data-node="ch3-source">
+                <span class="node-label">Source Queue</span>
+                <strong>payment.queue</strong>
+                <small>x-dead-letter-exchange=dlx</small>
+                <div class="queue-stack" data-stack="ch3-source"></div>
+              </div>
+              <div class="flow-node consumer" data-node="ch3-consumer">
+                <span class="node-label">Consumer</span>
+                <strong>PaymentWorker</strong>
+                <small>nack(requeue=false)</small>
+              </div>
+              <div class="flow-node exchange dlx-node" data-node="ch3-dlx">
+                <span class="node-label">DLX</span>
+                <strong>dead.exchange</strong>
+                <small>실패 메시지 라우팅</small>
+              </div>
+              <div class="flow-node queue dlq-node" data-node="ch3-dlq">
+                <span class="node-label">DLQ</span>
+                <strong>dead.queue</strong>
+                <small>원인 분석용 보관</small>
+                <div class="queue-stack" data-stack="ch3-dlq"></div>
+              </div>
+            </div>
+
+            <div class="state-strip">
+              <div>
+                <span>routed</span>
+                <strong data-count="ch3-routed">0</strong>
+              </div>
+              <div>
+                <span>source ready</span>
+                <strong data-count="ch3-source">0</strong>
+              </div>
+              <div>
+                <span>DLQ</span>
+                <strong data-count="ch3-dlq">0</strong>
+              </div>
+            </div>
+
+            <ol class="event-log" data-log="chapter3" aria-label="Chapter 3 event log"></ol>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
