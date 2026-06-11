@@ -1,4 +1,4 @@
-const CHAPTER_IDS = ["chapter-1", "chapter-2", "chapter-3"];
+const CHAPTER_IDS = ["chapter-1", "chapter-2", "chapter-3", "chapter-5"];
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const state = {
@@ -32,6 +32,34 @@ const state = {
     },
     busy: false,
   },
+  chapter5: {
+    sync: {
+      members: 2,
+      result: "대기",
+      serverA: "대기 중",
+      serverB: "대기 중",
+      lockA: "Server A JVM",
+      lockB: "Server B JVM",
+      shared: "서버 밖 공통 락 없음",
+    },
+    reentrant: {
+      members: 2,
+      result: "대기",
+      serverA: "Lock Map A 대기",
+      serverB: "Lock Map B 대기",
+      lockA: "free",
+      lockB: "free",
+      shared: "서버 밖 공통 락 없음",
+    },
+    redis: {
+      members: 2,
+      result: "대기",
+      serverA: "대기 중",
+      serverB: "대기 중",
+      lock: "free",
+    },
+    busy: false,
+  },
 };
 
 const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -44,6 +72,9 @@ document.addEventListener("DOMContentLoaded", () => {
   addLog("chapter1", "Chapter 1은 메시지가 Exchange를 거쳐 Queue에 저장되는 흐름부터 시작합니다.");
   addLog("chapter2", "Chapter 2는 같은 Queue를 여러 Consumer가 나눠 보는 상황을 관찰합니다.");
   addLog("chapter3", "Chapter 3은 Exchange 타입과 DLQ 이동 조건을 직접 눌러 확인합니다.");
+  addLog("sync", "synchronized는 하나의 JVM 안에서 monitor lock으로 임계 영역을 막습니다.");
+  addLog("reentrant", "ReentrantLock은 roomId별 락을 관리할 수 있지만 그 Lock Map은 JVM마다 따로 존재합니다.");
+  addLog("redis", "Redis 분산락은 여러 Spring 서버가 같은 lock key를 바라보게 만듭니다.");
 });
 
 function bindNavigation() {
@@ -127,6 +158,12 @@ const actionChapterMap = {
   "ch3-publish": "chapter3",
   "ch3-dlq": "chapter3",
   "ch3-ttl": "chapter3",
+  "sync-local": "chapter5",
+  "sync-multi": "chapter5",
+  "reentrant-multi": "chapter5",
+  "reentrant-timeout": "chapter5",
+  "redis-distributed": "chapter5",
+  "redis-failover": "chapter5",
 };
 
 const actions = {
@@ -141,6 +178,15 @@ const actions = {
   "ch3-dlq": runDlqFailure,
   "ch3-ttl": runTtlExpiry,
   "reset-ch3": resetChapter3,
+  "sync-local": runSynchronizedLocal,
+  "sync-multi": runSynchronizedMultiServer,
+  "reset-sync": resetSynchronized,
+  "reentrant-multi": runReentrantMultiServer,
+  "reentrant-timeout": runReentrantTimeout,
+  "reset-reentrant": resetReentrant,
+  "redis-distributed": runRedisDistributedLock,
+  "redis-failover": runRedisFailover,
+  "reset-redis": resetRedis,
 };
 
 async function withBusy(chapterKey, task) {
@@ -156,15 +202,14 @@ async function withBusy(chapterKey, task) {
 
 function setLabBusy(chapterKey, busy) {
   const chapterId = chapterKey.replace("chapter", "chapter-");
-  const lab = document.querySelector(`#${chapterId} .lab`);
-  if (!lab) {
-    return;
-  }
-
-  lab.querySelectorAll("button, select").forEach((control) => {
-    control.disabled = busy;
+  const labs = document.querySelectorAll(`#${chapterId} .lab, #${chapterId} .inline-lab`);
+  labs.forEach((lab) => {
+    lab.querySelectorAll("button, select").forEach((control) => {
+      control.disabled = busy;
+    });
   });
 }
+
 
 async function publishChapter1Message() {
   const chapter = state.chapter1;
@@ -447,6 +492,183 @@ function resetChapter3() {
   addLog("chapter3", "Chapter 3 상태를 초기화했습니다.");
 }
 
+async function runSynchronizedLocal() {
+  resetSynchronizedSurface("Server A 한 대 안으로 두 요청이 들어옵니다.");
+  const sync = state.chapter5.sync;
+  sync.serverA = "thread-1 monitor 획득";
+  sync.lockA = "locked by thread-1";
+  sync.lockB = "다른 서버 락";
+  renderChapter5();
+  await animateToken("sync", "sync-user-a", "sync-server-a", "HTTP", { duration: 1500 });
+  await animateToken("sync", "sync-server-a", "sync-lock-a", "lock", { variant: "ack", duration: 1500 });
+  await animateToken("sync", "sync-server-a", "sync-db", "INSERT", { duration: 1600 });
+  sync.members = 3;
+  sync.result = "첫 요청 입장";
+  sync.lockA = "thread-2 대기 중";
+  sync.serverA = "thread-2 monitor 대기";
+  renderChapter5();
+  addLog("sync", "thread-1이 monitor lock을 잡고 validateHeadCount와 INSERT를 먼저 끝냅니다.");
+  await animateToken("sync", "sync-user-b", "sync-server-a", "HTTP", { duration: 1500 });
+  await animateToken("sync", "sync-server-a", "sync-lock-a", "WAIT", { variant: "error", duration: 1600 });
+  sync.lockA = "unlocked";
+  sync.serverA = "thread-2 재검증 후 거절";
+  sync.result = "정원 초과 방지";
+  renderChapter5();
+  addLog("sync", "같은 JVM 안에서는 두 번째 요청이 기다렸다가 정원 3/3을 다시 보고 거절됩니다.");
+}
+
+async function runSynchronizedMultiServer() {
+  resetSynchronizedSurface("로드밸런서가 요청을 Server A와 Server B로 나눠 보냅니다.");
+  const sync = state.chapter5.sync;
+  sync.serverA = "thread-1 monitor 획득";
+  sync.serverB = "thread-8 자기 monitor 획득";
+  sync.lockA = "Server A acquired";
+  sync.lockB = "Server B acquired";
+  sync.shared = "공유 락 없음";
+  renderChapter5();
+  await animateToken("sync", "sync-user-a", "sync-server-a", "HTTP A", { duration: 1500 });
+  await animateToken("sync", "sync-user-b", "sync-server-b", "HTTP B", { duration: 1500 });
+  await animateToken("sync", "sync-server-a", "sync-lock-a", "lock A", { variant: "ack", duration: 1400 });
+  await animateToken("sync", "sync-server-b", "sync-lock-b", "lock B", { variant: "ack", duration: 1400 });
+  await animateToken("sync", "sync-shared", "sync-db", "no guard", { variant: "error", duration: 1600 });
+  await animateToken("sync", "sync-server-b", "sync-db", "INSERT", { variant: "error", duration: 1700 });
+  sync.members = 4;
+  sync.result = "서버 간 정원 초과 위험";
+  renderChapter5();
+  addLog("sync", "Server B의 JVM monitor는 Server A의 monitor와 다른 객체라 서로 기다리지 않습니다.");
+}
+
+function resetSynchronizedSurface(message) {
+  const sync = state.chapter5.sync;
+  sync.members = 2;
+  sync.result = "진행 중";
+  sync.serverA = "대기 중";
+  sync.serverB = "대기 중";
+  sync.lockA = "Server A JVM";
+  sync.lockB = "Server B JVM";
+  sync.shared = "서버 밖 공통 락 없음";
+  renderChapter5();
+  addLog("sync", message);
+}
+
+function resetSynchronized() {
+  clearLog("sync");
+  resetSynchronizedSurface("synchronized 액션을 초기화했습니다.");
+}
+
+async function runReentrantMultiServer() {
+  resetReentrantSurface("Server A와 Server B가 같은 studyroom:1 락을 만든 것처럼 보이지만, 실제로는 각 JVM 안의 다른 락입니다.");
+  const reentrant = state.chapter5.reentrant;
+  reentrant.serverA = "locks.get(1) 요청";
+  reentrant.serverB = "locks.get(1) 요청";
+  reentrant.lockA = "Server A acquired";
+  reentrant.lockB = "Server B acquired";
+  renderChapter5();
+  await animateToken("reentrant", "reentrant-user-a", "reentrant-server-a", "HTTP A", { duration: 1500 });
+  await animateToken("reentrant", "reentrant-user-b", "reentrant-server-b", "HTTP B", { duration: 1500 });
+  await animateToken("reentrant", "reentrant-server-a", "reentrant-lock-a", "lock:1", { variant: "ack", duration: 1500 });
+  await animateToken("reentrant", "reentrant-server-b", "reentrant-lock-b", "lock:1", { variant: "ack", duration: 1500 });
+  await animateToken("reentrant", "reentrant-shared", "reentrant-db", "no guard", { variant: "error", duration: 1500 });
+  await animateToken("reentrant", "reentrant-server-a", "reentrant-db", "INSERT", { duration: 1550 });
+  await animateToken("reentrant", "reentrant-server-b", "reentrant-db", "INSERT", { variant: "error", duration: 1550 });
+  reentrant.members = 4;
+  reentrant.result = "서버 간 정원 초과 위험";
+  renderChapter5();
+  addLog("reentrant", "두 서버 모두 studyroom:1이라는 이름의 락을 잡았지만, 각자의 JVM 메모리 안 락이라 서로를 막지 못합니다.");
+}
+
+async function runReentrantTimeout() {
+  resetReentrantSurface("같은 서버 안에서는 같은 Lock Map을 보므로 tryLock 대기시간을 둘 수 있습니다.");
+  const reentrant = state.chapter5.reentrant;
+  reentrant.serverA = "thread-1 tryLock 성공";
+  reentrant.serverB = "같은 서버로 들어온 thread-2";
+  reentrant.lockA = "locked by thread-1";
+  reentrant.lockB = "다른 서버 락 아님";
+  reentrant.shared = "공유 락 없음";
+  renderChapter5();
+  await animateToken("reentrant", "reentrant-user-a", "reentrant-server-a", "HTTP", { duration: 1500 });
+  await animateToken("reentrant", "reentrant-server-a", "reentrant-lock-a", "lock", { variant: "ack", duration: 1500 });
+  await animateToken("reentrant", "reentrant-user-b", "reentrant-server-a", "same JVM", { duration: 1500 });
+  await animateToken("reentrant", "reentrant-server-a", "reentrant-lock-a", "WAIT 2s", { variant: "error", duration: 1900 });
+  reentrant.lockA = "timeout or retry";
+  reentrant.result = "무한 대기 대신 실패 처리";
+  renderChapter5();
+  addLog("reentrant", "ReentrantLock의 tryLock timeout은 한 JVM 안의 대기 제어에는 좋지만, 다른 서버의 Lock Map까지 제어하지는 못합니다.");
+}
+
+function resetReentrantSurface(message) {
+  const reentrant = state.chapter5.reentrant;
+  reentrant.members = 2;
+  reentrant.result = "진행 중";
+  reentrant.serverA = "Lock Map A 대기";
+  reentrant.serverB = "Lock Map B 대기";
+  reentrant.lockA = "free";
+  reentrant.lockB = "free";
+  reentrant.shared = "서버 밖 공통 락 없음";
+  renderChapter5();
+  addLog("reentrant", message);
+}
+
+function resetReentrant() {
+  clearLog("reentrant");
+  resetReentrantSurface("ReentrantLock 액션을 초기화했습니다.");
+}
+
+async function runRedisDistributedLock() {
+  resetRedisSurface("Server A와 Server B가 같은 Redis key를 두고 경쟁합니다.");
+  const redis = state.chapter5.redis;
+  redis.serverA = "RLock 요청";
+  redis.serverB = "RLock 요청";
+  redis.lock = "Server A acquired";
+  renderChapter5();
+  await animateToken("redis", "redis-user-a", "redis-server-a", "HTTP A", { duration: 1500 });
+  await animateToken("redis", "redis-user-b", "redis-server-b", "HTTP B", { duration: 1500 });
+  await animateToken("redis", "redis-server-a", "redis-center", "SET NX", { variant: "ack", duration: 1700 });
+  await animateToken("redis", "redis-server-b", "redis-center", "WAIT", { variant: "error", duration: 1800 });
+  await animateToken("redis", "redis-server-a", "redis-db", "INSERT", { duration: 1700 });
+  redis.members = 3;
+  redis.serverA = "unlock";
+  redis.serverB = "lock 획득 후 재검증";
+  redis.lock = "Server B acquired";
+  renderChapter5();
+  await animateToken("redis", "redis-center", "redis-server-b", "LOCK", { variant: "ack", duration: 1500 });
+  redis.result = "분산 환경에서 정원 보호";
+  redis.serverB = "정원 3/3 확인 후 거절";
+  renderChapter5();
+  addLog("redis", "두 서버가 같은 Redis studyroomLock:1 키를 보기 때문에 Server B는 기다렸다가 재검증합니다.");
+}
+
+async function runRedisFailover() {
+  resetRedisSurface("분산락은 Redis 장애와 lease time도 같이 설계해야 합니다.");
+  const redis = state.chapter5.redis;
+  redis.serverA = "lock 획득 후 처리 중";
+  redis.lock = "lease time ticking";
+  renderChapter5();
+  await animateToken("redis", "redis-server-a", "redis-center", "LOCK 10s", { variant: "ack", duration: 1600 });
+  await animateToken("redis", "redis-center", "redis-server-b", "WAIT", { variant: "error", duration: 1800 });
+  redis.lock = "expired or Redis unavailable";
+  redis.serverB = "재시도/실패 정책 필요";
+  redis.result = "운영 안전장치 필요";
+  renderChapter5();
+  addLog("redis", "finally unlock, lease time, Redis 장애 시 fallback 정책까지 있어야 분산락을 안전하게 쓸 수 있습니다.");
+}
+
+function resetRedisSurface(message) {
+  const redis = state.chapter5.redis;
+  redis.members = 2;
+  redis.result = "진행 중";
+  redis.serverA = "대기 중";
+  redis.serverB = "대기 중";
+  redis.lock = "free";
+  renderChapter5();
+  addLog("redis", message);
+}
+
+function resetRedis() {
+  clearLog("redis");
+  resetRedisSurface("Redis 분산락 액션을 초기화했습니다.");
+}
+
 function resolveTargets(type, routingKey) {
   if (type === "fanout") {
     return ["error", "warn", "info", "all"];
@@ -517,6 +739,7 @@ function renderAll() {
   renderChapter1();
   renderChapter2();
   renderChapter3();
+  renderChapter5();
   renderExchangeLabels();
 }
 
@@ -558,6 +781,46 @@ function renderChapter3() {
   renderStack("ch3-source", makeStackLabels(chapter.source, "pay"));
   renderStack("ch3-dlq", makeStackLabels(chapter.dlq, "dead"), {
     errorIds: makeStackLabels(chapter.dlq, "dead"),
+  });
+}
+
+function renderChapter5() {
+  const { sync, reentrant, redis } = state.chapter5;
+
+  setText('[data-sync="server-a"]', sync.serverA);
+  setText('[data-sync="server-b"]', sync.serverB);
+  setText('[data-sync="lock-a"]', sync.lockA);
+  setText('[data-sync="lock-b"]', sync.lockB);
+  setText('[data-sync="shared"]', sync.shared);
+  setText('[data-sync="db"]', `정원 3명 / 현재 ${Math.min(sync.members, 3)}명${sync.members > 3 ? " + 초과 요청" : ""}`);
+  setCount("sync-members", `${sync.members} / 3`);
+  setCount("sync-result", sync.result);
+  renderSeats("[data-sync-seat]", sync.members);
+
+  setText('[data-reentrant="server-a"]', reentrant.serverA);
+  setText('[data-reentrant="server-b"]', reentrant.serverB);
+  setText('[data-reentrant="lock-a"]', reentrant.lockA);
+  setText('[data-reentrant="lock-b"]', reentrant.lockB);
+  setText('[data-reentrant="shared"]', reentrant.shared);
+  setText('[data-reentrant="db"]', `정원 3명 / 현재 ${Math.min(reentrant.members, 3)}명${reentrant.members > 3 ? " + 초과 요청" : ""}`);
+  setCount("reentrant-members", `${reentrant.members} / 3`);
+  setCount("reentrant-result", reentrant.result);
+  renderSeats("[data-reentrant-seat]", reentrant.members);
+
+  setText('[data-redis="server-a"]', redis.serverA);
+  setText('[data-redis="server-b"]', redis.serverB);
+  setText('[data-redis="lock"]', redis.lock);
+  setText('[data-redis="db"]', `정원 3명 / 현재 ${Math.min(redis.members, 3)}명`);
+  setCount("redis-members", `${redis.members} / 3`);
+  setCount("redis-result", redis.result);
+  renderSeats("[data-redis-seat]", redis.members);
+}
+
+function renderSeats(selector, members) {
+  document.querySelectorAll(selector).forEach((seat) => {
+    const index = Number(seat.dataset.syncSeat || seat.dataset.reentrantSeat || seat.dataset.redisSeat);
+    seat.classList.toggle("is-filled", index <= Math.min(members, 3));
+    seat.classList.toggle("is-overflow", members > 3 && index === 3);
   });
 }
 
@@ -681,7 +944,7 @@ async function animateToken(boardName, fromNode, toNode, label, options = {}) {
       },
     ],
     {
-      duration: options.duration || 980,
+      duration: options.duration || 1350,
       easing: "cubic-bezier(.2,.7,.2,1)",
       fill: "forwards",
     },

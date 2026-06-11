@@ -134,6 +134,11 @@ code {
   transition: box-shadow 160ms ease, transform 160ms ease;
 }
 
+.chapter-nav optgroup {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .chapter-nav select:hover,
 .routing-form select:hover {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
@@ -209,6 +214,56 @@ h2 {
   color: #2b2b2b;
 }
 
+.blog-post {
+  max-width: 960px;
+}
+
+.post-block {
+  border-top: 1px solid var(--line);
+  padding: 2rem 0;
+}
+
+.post-block:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.post-block h2 {
+  margin-bottom: 0.9rem;
+  font-size: 1.55rem;
+}
+
+.post-block h3 {
+  margin: 0;
+  font-size: 1.14rem;
+  line-height: 1.25;
+}
+
+.post-block p {
+  max-width: 780px;
+  margin: 0.9rem 0 0;
+  color: #2c2c2c;
+}
+
+.code-panel {
+  overflow: auto;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  background: #101010;
+  color: #f6f6f6;
+  margin: 1.15rem 0 0;
+  padding: 1rem;
+  line-height: 1.5;
+}
+
+.code-panel code {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: 0.9rem;
+}
+
 .plain-list {
   display: grid;
   gap: 0.72rem;
@@ -228,6 +283,15 @@ h2 {
   border-radius: 8px;
   background: var(--paper);
   box-shadow: var(--shadow);
+  padding: 1.25rem;
+}
+
+.inline-lab {
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  margin-top: 1.35rem;
   padding: 1.25rem;
 }
 
@@ -440,6 +504,53 @@ h2 {
   grid-row: 4;
 }
 
+.lock-compare-board {
+  grid-template-columns: 0.82fr 1.02fr 1fr 1fr 1.05fr;
+  grid-template-rows: repeat(2, minmax(126px, auto));
+  min-height: 390px;
+}
+
+.lock-compare-board [data-node$="user-a"] {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.lock-compare-board [data-node$="user-b"] {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.lock-compare-board [data-node$="server-a"] {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.lock-compare-board [data-node$="server-b"] {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.lock-compare-board [data-node$="lock-a"] {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.lock-compare-board [data-node$="lock-b"] {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.lock-compare-board [data-node$="shared"],
+.lock-compare-board [data-node="redis-center"] {
+  grid-column: 4;
+  grid-row: 1 / span 2;
+}
+
+.lock-compare-board [data-node$="db"] {
+  grid-column: 5;
+  grid-row: 1 / span 2;
+}
+
 .flow-node {
   position: relative;
   display: flex;
@@ -520,8 +631,79 @@ h2 {
   background: var(--danger);
 }
 
+.server-node,
+.spring-node,
+.request-node {
+  background: #fbfbfb;
+}
+
+.table-node {
+  background: #f6f7f6;
+}
+
+.lock-node,
+.redis-node {
+  background: #f5fbff;
+}
+
+.spring-node {
+  border-style: dashed;
+}
+
+.request-node {
+  background: #fffdf5;
+}
+
 .wide-node {
   min-width: 0;
+}
+
+.data-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-top: 0.55rem;
+  background: var(--paper);
+  padding: 0.52rem 0.6rem;
+}
+
+.data-row span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.data-row b {
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+}
+
+.seat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0.75rem 0 0.35rem;
+}
+
+.seat-grid span {
+  display: block;
+  aspect-ratio: 1;
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.seat-grid span.is-filled {
+  background: var(--ink);
+}
+
+.seat-grid span.is-overflow {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  box-shadow: inset 0 0 0 2px var(--danger);
 }
 
 .queue-stack {
@@ -620,15 +802,15 @@ h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 2.45rem;
-  max-width: 6.6rem;
-  min-height: 1.75rem;
+  min-width: 3rem;
+  max-width: 8.5rem;
+  min-height: 2rem;
   border: 2px solid var(--ink);
   border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
   padding: 0.16rem 0.54rem;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 850;
   line-height: 1;
   pointer-events: none;
@@ -636,7 +818,7 @@ h2 {
   white-space: nowrap;
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.82),
-    0 10px 22px rgba(0, 0, 0, 0.16);
+    0 12px 28px rgba(0, 0, 0, 0.22);
 }
 
 .message-token.error {
@@ -712,6 +894,10 @@ h2 {
   .segmented-control {
     display: grid;
     grid-auto-flow: row;
+  }
+
+  .lock-control {
+    width: 100%;
   }
 
   .segmented-control button {
